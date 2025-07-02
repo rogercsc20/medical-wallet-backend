@@ -3,10 +3,5 @@ uvicorn
 sqlalchemy
 alembic
 pydantic
-psycopg2-binary
 python-dotenv
-passlib[bcrypt]
-jose
-pytest
-httpx
 
