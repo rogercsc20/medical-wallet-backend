@@ -1,6 +1,6 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
-from app.services.fhir_client import FHIRClient
+from fastapi import APIRouter, Depends, Query
+from app.services.fhir.observation_service import ObservationService
 from app.core.dependencies import get_fhir_client, get_current_user
 from app.schemas.observation import (
     ObservationCreate,
@@ -12,6 +12,14 @@ from app.utils.exceptions import FHIRClientError, ValidationError
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+def get_observation_service(fhir_client=Depends(get_fhir_client)):
+    return ObservationService(
+        base_url=fhir_client.base_url,
+        timeout=fhir_client.timeout,
+        auth_token=fhir_client.auth_token,
+        client=fhir_client.client,
+    )
+
 @router.post(
     "/",
     response_model=ObservationResponse,
@@ -21,16 +29,16 @@ logger = logging.getLogger(__name__)
 )
 async def create_observation(
     observation: ObservationCreate,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
+    observation_service: ObservationService = Depends(get_observation_service),
     current_user: str = Depends(get_current_user),
 ):
+    logger.info(f"User {current_user} creating observation")
     try:
-        result = await fhir_client.create_observation(observation.dict())
-        logger.info(f"Observation created by user {current_user}: {result.get('id')}")
+        result = await observation_service.create_observation(observation.dict())
         return ObservationResponse(**result)
     except (FHIRClientError, ValidationError) as e:
         logger.error(f"Error creating observation: {str(e)}")
-        raise HTTPException(status_code=400, detail="Failed to create observation.")
+        raise
 
 @router.get(
     "/{observation_id}",
@@ -41,37 +49,16 @@ async def create_observation(
 )
 async def get_observation(
     observation_id: str,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
+    observation_service: ObservationService = Depends(get_observation_service),
     current_user: str = Depends(get_current_user),
 ):
+    logger.info(f"User {current_user} retrieving observation {observation_id}")
     try:
-        result = await fhir_client.get_observation(observation_id)
-        logger.info(f"Observation retrieved by user {current_user}: {observation_id}")
+        result = await observation_service.get_observation(observation_id)
         return ObservationResponse(**result)
     except FHIRClientError as e:
         logger.error(f"Error retrieving observation {observation_id}: {str(e)}")
-        raise HTTPException(status_code=404, detail="Observation not found")
-
-@router.patch(
-    "/{observation_id}",
-    response_model=ObservationResponse,
-    summary="Update observation (partial)",
-    description="Partially update a lab result.",
-    tags=["observations"],
-)
-async def update_observation(
-    observation_id: str,
-    observation: ObservationUpdate,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
-    current_user: str = Depends(get_current_user),
-):
-    try:
-        result = await fhir_client.update_observation(observation_id, observation.dict(exclude_unset=True))
-        logger.info(f"Observation updated by user {current_user}: {observation_id}")
-        return ObservationResponse(**result)
-    except FHIRClientError as e:
-        logger.error(f"Error updating observation {observation_id}: {str(e)}")
-        raise HTTPException(status_code=400, detail="Failed to update observation")
+        raise FHIRClientError(f"Observation with ID {observation_id} not found.")
 
 @router.get(
     "/patient/{patient_id}",
@@ -82,14 +69,77 @@ async def update_observation(
 )
 async def list_patient_observations(
     patient_id: str,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
+    observation_service: ObservationService = Depends(get_observation_service),
     current_user: str = Depends(get_current_user),
 ):
+    logger.info(f"User {current_user} listing observations for patient {patient_id}")
     try:
-        results = await fhir_client.get_patient_observations(patient_id)
-        logger.info(f"Observations listed by user {current_user} for patient {patient_id}")
-        return [ObservationResponse(**entry["resource"]) for entry in results.get("entry", [])]
+        results = await observation_service.get_patient_observations(patient_id)
+        entries = results.get("entry", [])
+        return [ObservationResponse(**entry["resource"]) for entry in entries]
     except FHIRClientError as e:
         logger.error(f"Error listing observations for patient {patient_id}: {str(e)}")
-        raise HTTPException(status_code=400, detail="Failed to list observations")
+        raise
+
+@router.put(
+    "/{observation_id}",
+    response_model=ObservationResponse,
+    summary="Update observation (full)",
+    description="Update an entire lab result resource.",
+    tags=["observations"],
+)
+async def update_observation(
+    observation_id: str,
+    observation: ObservationUpdate,
+    observation_service: ObservationService = Depends(get_observation_service),
+    current_user: str = Depends(get_current_user),
+):
+    logger.info(f"User {current_user} updating observation {observation_id}")
+    try:
+        result = await observation_service.update_observation(observation_id, observation.dict())
+        return ObservationResponse(**result)
+    except FHIRClientError as e:
+        logger.error(f"Error updating observation {observation_id}: {str(e)}")
+        raise
+
+@router.patch(
+    "/{observation_id}",
+    response_model=ObservationResponse,
+    summary="Patch observation (partial update)",
+    description="Partially update a lab result.",
+    tags=["observations"],
+)
+async def patch_observation(
+    observation_id: str,
+    observation: ObservationUpdate,
+    observation_service: ObservationService = Depends(get_observation_service),
+    current_user: str = Depends(get_current_user),
+):
+    logger.info(f"User {current_user} patching observation {observation_id}")
+    try:
+        result = await observation_service.patch_observation(observation_id, observation.dict(exclude_unset=True))
+        return ObservationResponse(**result)
+    except FHIRClientError as e:
+        logger.error(f"Error patching observation {observation_id}: {str(e)}")
+        raise
+
+@router.delete(
+    "/{observation_id}",
+    response_model=dict,
+    summary="Delete observation",
+    description="Delete a lab result resource.",
+    tags=["observations"],
+)
+async def delete_observation(
+    observation_id: str,
+    observation_service: ObservationService = Depends(get_observation_service),
+    current_user: str = Depends(get_current_user),
+):
+    logger.info(f"User {current_user} deleting observation {observation_id}")
+    try:
+        await observation_service.delete_observation(observation_id)
+        return {"message": f"Observation {observation_id} deleted successfully."}
+    except FHIRClientError as e:
+        logger.error(f"Error deleting observation {observation_id}: {str(e)}")
+        raise
 

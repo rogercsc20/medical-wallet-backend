@@ -1,9 +1,12 @@
+from fastapi.exception_handlers import RequestValidationError
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 from app.core.config import settings
 from app.core.logging import setup_logging
+from app.utils.exceptions import FHIRClientError, ValidationError, PatientNotFoundError
 from app.api.v1 import patients, observations, conditions, medications, auth
 import logging
 
@@ -53,11 +56,75 @@ async def health_check():
     logger.info("Health check endpoint accessed.")
     return {"status": "healthy", "fhir_server": settings.FHIR_SERVER_URL}
 
+@app.exception_handler(FHIRClientError)
+async def fhir_client_error_handler(request: Request, exc: FHIRClientError):
+    logger.error(f"FHIRClientError at {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error_code": "FHIR_CLIENT_ERROR",
+            "message": str(exc),
+            "details": "An error occurred communicating with the FHIR server."
+        }
+    )
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError):
+    logger.error(f"ValidationError at {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error_code": "VALIDATION_ERROR",
+            "message": str(exc),
+            "details": "Input validation failed."
+        }
+    )
+
+@app.exception_handler(PatientNotFoundError)
+async def patient_not_found_handler(request: Request, exc: PatientNotFoundError):
+    logger.error(f"PatientNotFoundError at {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error_code": "RESOURCE_NOT_FOUND",
+            "message": str(exc),
+            "details": "Patient not found."
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"RequestValidationError at {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error_code": "REQUEST_VALIDATION_ERROR",
+            "message": "Request validation error",
+            "details": exc.errors()
+        }
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    logger.error(f"HTTPException at {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error_code": f"HTTP_{exc.status_code}",
+            "message": exc.detail,
+            "details": "HTTP exception occurred."
+        }
+    )
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def generic_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error at {request.url.path}: {exc}", exc_info=True)
     return JSONResponse(
-        status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Internal server error. Please contact support."}
+        status_code=500,
+        content={
+            "error_code": "INTERNAL_SERVER_ERROR",
+            "message": "Internal server error",
+            "details": "An unexpected error occurred. Please contact support."
+        }
     )
 

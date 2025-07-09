@@ -1,60 +1,44 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
-from app.services.fhir_client import FHIRClient
-from app.services.ckd_service import CKDService
+from fastapi import APIRouter, Depends, Query
+from app.services.fhir.patient_service import PatientService
 from app.core.dependencies import get_fhir_client, get_current_user
 from app.schemas.patient import (
     PatientCreate,
+    PatientUpdate,
     PatientResponse,
-    CKDPatientCreate,
-    CKDPatientRegistrationResponse,
-    CKDSummaryResponse,
 )
-from app.utils.exceptions import FHIRClientError, ValidationError
+from app.utils.exceptions import FHIRClientError, ValidationError, PatientNotFoundError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+def get_patient_service(fhir_client=Depends(get_fhir_client)):
+    return PatientService(
+        base_url=fhir_client.base_url,
+        timeout=fhir_client.timeout,
+        auth_token=fhir_client.auth_token,
+        client=fhir_client.client,
+    )
+
 @router.post(
     "/",
     response_model=PatientResponse,
-    summary="Create a new patient",
-    description="Register a new patient in the FHIR server.",
+    summary="Create patient",
+    description="Create a new patient FHIR resource.",
     tags=["patients"],
 )
 async def create_patient(
     patient: PatientCreate,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
+    patient_service: PatientService = Depends(get_patient_service),
     current_user: str = Depends(get_current_user),
 ):
+    logger.info(f"User {current_user} creating patient")
     try:
-        result = await fhir_client.create_patient(patient.dict())
-        logger.info(f"Patient created by user {current_user}: {result.get('id')}")
+        result = await patient_service.create_patient(patient.dict())
         return PatientResponse(**result)
     except (FHIRClientError, ValidationError) as e:
         logger.error(f"Error creating patient: {str(e)}")
-        raise HTTPException(status_code=400, detail="Failed to create patient.")
-
-@router.post(
-    "/ckd",
-    response_model=CKDPatientRegistrationResponse,
-    summary="Register CKD patient",
-    description="Register a new CKD patient, including initial diagnosis and labs.",
-    tags=["patients"],
-)
-async def register_ckd_patient(
-    patient: CKDPatientCreate,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
-    current_user: str = Depends(get_current_user),
-):
-    try:
-        ckd_service = CKDService(fhir_client)
-        result = await ckd_service.register_ckd_patient(patient.dict())
-        logger.info(f"CKD patient registered by user {current_user}: {result.get('patient_id')}")
-        return CKDPatientRegistrationResponse(**result)
-    except (FHIRClientError, ValidationError) as e:
-        logger.error(f"Error registering CKD patient: {str(e)}")
-        raise HTTPException(status_code=400, detail="Failed to register CKD patient.")
+        raise
 
 @router.get(
     "/{patient_id}",
@@ -65,35 +49,103 @@ async def register_ckd_patient(
 )
 async def get_patient(
     patient_id: str,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
+    patient_service: PatientService = Depends(get_patient_service),
     current_user: str = Depends(get_current_user),
 ):
+    logger.info(f"User {current_user} retrieving patient {patient_id}")
     try:
-        result = await fhir_client.get_patient(patient_id)
-        logger.info(f"Patient retrieved by user {current_user}: {patient_id}")
+        result = await patient_service.get_patient(patient_id)
         return PatientResponse(**result)
     except FHIRClientError as e:
         logger.error(f"Error retrieving patient {patient_id}: {str(e)}")
-        raise HTTPException(status_code=404, detail="Patient not found")
+        raise PatientNotFoundError(f"Patient with ID {patient_id} not found.")
 
 @router.get(
-    "/{patient_id}/ckd-summary",
-    response_model=CKDSummaryResponse,
-    summary="Get CKD summary for patient",
-    description="Aggregate and return CKD-specific summary for a patient.",
+    "/",
+    response_model=list[PatientResponse],
+    summary="Search patients",
+    description="Search for patients by query parameters.",
     tags=["patients"],
 )
-async def get_ckd_summary(
-    patient_id: str,
-    fhir_client: FHIRClient = Depends(get_fhir_client),
+async def search_patients(
+    name: str = Query(None, description="Patient name"),
+    identifier: str = Query(None, description="Patient identifier"),
+    patient_service: PatientService = Depends(get_patient_service),
     current_user: str = Depends(get_current_user),
 ):
+    logger.info(f"User {current_user} searching patients")
     try:
-        ckd_service = CKDService(fhir_client)
-        result = await ckd_service.get_ckd_summary(patient_id)
-        logger.info(f"CKD summary retrieved by user {current_user}: {patient_id}")
-        return CKDSummaryResponse(**result)
+        params = {}
+        if name:
+            params["name"] = name
+        if identifier:
+            params["identifier"] = identifier
+        results = await patient_service.search_patients(params)
+        entries = results.get("entry", [])
+        return [PatientResponse(**entry["resource"]) for entry in entries]
     except FHIRClientError as e:
-        logger.error(f"Error retrieving CKD summary for patient {patient_id}: {str(e)}")
-        raise HTTPException(status_code=404, detail="Patient not found")
+        logger.error(f"Error searching patients: {str(e)}")
+        raise
+
+@router.put(
+    "/{patient_id}",
+    response_model=PatientResponse,
+    summary="Update patient (full)",
+    description="Update an entire patient FHIR resource.",
+    tags=["patients"],
+)
+async def update_patient(
+    patient_id: str,
+    patient: PatientUpdate,
+    patient_service: PatientService = Depends(get_patient_service),
+    current_user: str = Depends(get_current_user),
+):
+    logger.info(f"User {current_user} updating patient {patient_id}")
+    try:
+        result = await patient_service.update_patient(patient_id, patient.dict())
+        return PatientResponse(**result)
+    except FHIRClientError as e:
+        logger.error(f"Error updating patient {patient_id}: {str(e)}")
+        raise
+
+@router.patch(
+    "/{patient_id}",
+    response_model=PatientResponse,
+    summary="Patch patient (partial update)",
+    description="Partially update a patient FHIR resource.",
+    tags=["patients"],
+)
+async def patch_patient(
+    patient_id: str,
+    patient: PatientUpdate,
+    patient_service: PatientService = Depends(get_patient_service),
+    current_user: str = Depends(get_current_user),
+):
+    logger.info(f"User {current_user} patching patient {patient_id}")
+    try:
+        result = await patient_service.patch_patient(patient_id, patient.dict(exclude_unset=True))
+        return PatientResponse(**result)
+    except FHIRClientError as e:
+        logger.error(f"Error patching patient {patient_id}: {str(e)}")
+        raise
+
+@router.delete(
+    "/{patient_id}",
+    response_model=dict,
+    summary="Delete patient",
+    description="Delete a patient FHIR resource.",
+    tags=["patients"],
+)
+async def delete_patient(
+    patient_id: str,
+    patient_service: PatientService = Depends(get_patient_service),
+    current_user: str = Depends(get_current_user),
+):
+    logger.info(f"User {current_user} deleting patient {patient_id}")
+    try:
+        result = await patient_service.delete_patient(patient_id)
+        return {"message": f"Patient {patient_id} deleted successfully."}
+    except FHIRClientError as e:
+        logger.error(f"Error deleting patient {patient_id}: {str(e)}")
+        raise
 
