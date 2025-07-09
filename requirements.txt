@@ -1,7 +1,18 @@
 fastapi
-uvicorn
-sqlalchemy
+uvicorn[standard]
+sqlalchemy>=1.4
+psycopg2-binary
 alembic
-pydantic
+pydantic>=2.0
+pydantic-settings
+fhir.resources
+passlib[bcrypt]
+httpx
+pytest
+pytest-asyncio
+httpx[cli]
+mypy
 python-dotenv
+PyJWT
+pydantic[email]
 
