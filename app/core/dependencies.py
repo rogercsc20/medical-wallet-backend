@@ -1,14 +1,14 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.services.fhir_client import FHIRClient
+from app.services.fhir.base_client import BaseFHIRClient
 from app.core.config import settings
 import jwt
 
 security = HTTPBearer()
 
-async def get_fhir_client() -> FHIRClient:
+async def get_fhir_client() -> BaseFHIRClient:
     """Dependency to get FHIR client instance"""
-    return FHIRClient(base_url=settings.FHIR_SERVER_URL, timeout=settings.FHIR_TIMEOUT)
+    return BaseFHIRClient(base_url=settings.FHIR_SERVER_URL, timeout=settings.FHIR_TIMEOUT)
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Dependency to get current authenticated user"""

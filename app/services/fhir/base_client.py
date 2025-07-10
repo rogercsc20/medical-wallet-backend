@@ -8,8 +8,14 @@ import json
 
 logger = logging.getLogger(__name__)
 
-class FHIRClient:
-    def __init__(self, base_url: str, timeout: int = 30, auth_token: Optional[str] = None, client: Optional[httpx.AsyncClient] = None):
+class BaseFHIRClient:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 30,
+        auth_token: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ):
         self.base_url = base_url.rstrip('/')
         self.timeout = timeout
         self.auth_token = auth_token
@@ -22,7 +28,7 @@ class FHIRClient:
             self.headers["Authorization"] = f"Bearer {self.auth_token}"
 
     async def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
-        """Make HTTP request to FHIR server"""
+        """Make HTTP request to FHIR server with enhanced diagnostics."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         try:
             response = await self.client.request(
@@ -35,8 +41,25 @@ class FHIRClient:
             logger.info(f"FHIR {method} {url} success")
             return response.json()
         except httpx.HTTPStatusError as e:
-            logger.error(f"FHIR server error: {e.response.status_code} on {url}")
-            raise FHIRClientError(f"FHIR server error: {e.response.status_code}")
+            # Try to extract OperationOutcome diagnostics if present
+            logger.error(f"Raw error response: {e.response.text}")
+            try:
+                outcome = e.response.text
+                if outcome.get("resourceType") == "OperationOutcome":
+                    issue = outcome.get("issue", [{}])[0]
+                    diagnostics = issue.get("diagnostics", "")
+                    code = issue.get("code", "")
+                    details = issue.get("details", {}).get("text", "")
+                    logger.error(
+                        f"FHIR server error: {e.response.status_code} on {url} - {diagnostics} (code: {code}) {details}"
+                    )
+                    raise FHIRClientError(
+                        f"{diagnostics} (code: {code}) {details}".strip()
+                    )
+            except Exception:
+                logger.error(f"FHIR server error: {e.response.status_code} on {url}")
+                # If diagnostics extraction fails, fall back to generic error
+                raise FHIRClientError(f"FHIR server error: {e.response.status_code}")
         except httpx.TimeoutException:
             logger.error(f"FHIR server timeout on {url}")
             raise FHIRClientError("FHIR server timeout")

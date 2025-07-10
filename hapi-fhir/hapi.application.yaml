@@ -16,6 +16,12 @@ hapi:
     default_pretty_print: true
     server_address: 'http://localhost:8080/fhir'
     ig_runtime_upload_enabled: true
+    expunge_enabled: true
+    allow_multiple_delete: true
+    allow_cascading_deletes: true
+    enforce_referential_integrity_on_delete: false
+    enforce_referential_integrity_on_write: false
+    allow_update_create: true
 
   # Enable auditing for HIPAA compliance
   audit:

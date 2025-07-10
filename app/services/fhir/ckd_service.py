@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, List
-from app.services.fhir_client import FHIRClient
+from app.services.fhir.base_client import BaseFHIRClient
 from app.utils.fhir_helpers import create_ckd_condition, create_lab_observation
 from app.constants.clinical import CKD_CODES, CKD_LAB_CODES
 from app.schemas.patient import (
@@ -15,7 +15,7 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 class CKDService:
-    def __init__(self, fhir_client: FHIRClient):
+    def __init__(self, fhir_client: BaseFHIRClient):
         self.fhir_client = fhir_client
 
     async def register_ckd_patient(self, patient_data: CKDPatientCreate) -> CKDPatientRegistrationResponse:
