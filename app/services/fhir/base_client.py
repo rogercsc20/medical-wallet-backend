@@ -43,19 +43,7 @@ class BaseFHIRClient:
         except httpx.HTTPStatusError as e:
             # Try to extract OperationOutcome diagnostics if present
             logger.error(f"Raw error response: {e.response.text}")
-            try:
-                outcome = e.response.text
-                if outcome.get("resourceType") == "OperationOutcome":
-                    issue = outcome.get("issue", [{}])[0]
-                    diagnostics = issue.get("diagnostics", "")
-                    code = issue.get("code", "")
-                    details = issue.get("details", {}).get("text", "")
-                    logger.error(
-                        f"FHIR server error: {e.response.status_code} on {url} - {diagnostics} (code: {code}) {details}"
-                    )
-                    raise FHIRClientError(
-                        f"{diagnostics} (code: {code}) {details}".strip()
-                    )
+            raise FHIRClientError("FHIR server error.")
             except Exception:
                 logger.error(f"FHIR server error: {e.response.status_code} on {url}")
                 # If diagnostics extraction fails, fall back to generic error

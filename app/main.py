@@ -63,7 +63,6 @@ async def fhir_client_error_handler(request: Request, exc: FHIRClientError):
         status_code=400,
         content={
             "error_code": "FHIR_CLIENT_ERROR",
-            "message": "FHIR server error: 400",
             "details": str(exc)
         }
     )
