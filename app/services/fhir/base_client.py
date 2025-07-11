@@ -40,17 +40,18 @@ class BaseFHIRClient:
             response.raise_for_status()
             logger.info(f"FHIR {method} {url} success")
             return response.json()
+
         except httpx.HTTPStatusError as e:
-            # Try to extract OperationOutcome diagnostics if present
             logger.error(f"Raw error response: {e.response.text}")
             raise FHIRClientError("FHIR server error.")
-            except Exception:
-                logger.error(f"FHIR server error: {e.response.status_code} on {url}")
-                # If diagnostics extraction fails, fall back to generic error
-                raise FHIRClientError(f"FHIR server error: {e.response.status_code}")
+        except Exception:
+            logger.error(f"FHIR server error: {e.response.status_code} on {url}")
+            raise FHIRClientError(f"FHIR server error: {e.response.status_code}")
+       
         except httpx.TimeoutException:
             logger.error(f"FHIR server timeout on {url}")
             raise FHIRClientError("FHIR server timeout")
+       
         except Exception as e:
             logger.error(f"FHIR client error on {url}: {str(e)}")
             raise FHIRClientError(f"FHIR client error: {str(e)}")

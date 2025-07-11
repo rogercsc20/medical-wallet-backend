@@ -4,6 +4,13 @@ from app.utils.helpers import serialize_dates
 from app.utils.exceptions import FHIRClientError
 from .base_client import BaseFHIRClient
 import json
+import pprint
+import logging
+from pprint import pformat
+
+logger = logging.getLogger(__name__)
+
+
 
 class PatientService(BaseFHIRClient):
     async def create_patient(self, patient_data: Dict) -> Dict:
@@ -21,6 +28,7 @@ class PatientService(BaseFHIRClient):
     async def update_patient(self, patient_id: str, patient_data: Dict) -> Dict:
         patient = Patient(**patient_data)
         serialized = serialize_dates(patient.dict())
+        logger.warning("🔍 Final PUT payload:\n%s", serialized)
         return await self._make_request("PUT", f"/Patient/{patient_id}", serialized)
 
     async def patch_patient(self, patient_id: str, patient_data: Dict) -> Dict:

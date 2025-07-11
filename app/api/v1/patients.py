@@ -8,6 +8,7 @@ from app.schemas.patient import (
     PatientResponse,
 )
 from app.utils.exceptions import FHIRClientError, ValidationError, PatientNotFoundError
+from pprint import pformat
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -94,6 +95,13 @@ async def search_patients(
     description="Update an entire patient FHIR resource.",
     tags=["patients"],
 )
+@router.put(
+    "/{patient_id}",
+    response_model=PatientResponse,
+    summary="Update patient (full)",
+    description="Update an entire patient FHIR resource.",
+    tags=["patients"],
+)
 async def update_patient(
     patient_id: str,
     patient: PatientUpdate,
@@ -102,11 +110,15 @@ async def update_patient(
 ):
     logger.info(f"User {current_user} updating patient {patient_id}")
     try:
-        result = await patient_service.update_patient(patient_id, patient.dict())
+        patient_data = patient.dict(exclude_unset=True)
+        patient_data["id"] = str(patient_id)
+        patient_data["resourceType"] = "Patient"
+        result = await patient_service.update_patient(patient_id, patient_data)
         return PatientResponse(**result)
     except FHIRClientError as e:
         logger.error(f"Error updating patient {patient_id}: {str(e)}")
         raise
+
 
 @router.patch(
     "/{patient_id}",
